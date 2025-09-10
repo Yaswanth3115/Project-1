@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>World Clocks — Time by Country</title>
+  <style>
+    :root{
+      --bg:#0f1724; --card:#0b1220; --muted:#9aa4b2; --accent:#6ee7b7;
+      --glass: rgba(255,255,255,0.03);
+      font-family: Inter,system-ui,Segoe UI,Roboto,Arial;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100vh;background:linear-gradient(180deg,#071022 0%,var(--bg) 100%);color:#e6eef6;padding:32px}
+    header{display:flex;align-items:center;gap:16px;margin-bottom:18px}
+    h1{font-size:20px;margin:0}
+    p.lead{margin:0;color:var(--muted);font-size:13px}
+
+    .controls{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0}
+    select,input,button{padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,0.04);background:var(--card);color:inherit}
+    input{min-width:180px}
+    button{cursor:pointer}
+
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+    .card{background:var(--glass);padding:14px;border-radius:12px;box-shadow:0 6px 18px rgba(2,6,23,0.6);border:1px solid rgba(255,255,255,0.03)}
+    .card .top{display:flex;justify-content:space-between;align-items:center}
+    .location{font-weight:600}
+    .tz{font-size:12px;color:var(--muted)}
+    .time{font-size:28px;margin:10px 0 6px}
+    .date{font-size:13px;color:var(--muted)}
+    .small{font-size:12px;color:var(--muted)}
+
+    .empty{color:var(--muted);text-align:center;padding:40px;border-radius:12px;border:1px dashed rgba(255,255,255,0.03)}
+
+    footer{margin-top:18px;color:var(--muted);font-size:13px}
+
+    @media (max-width:520px){body{padding:16px} .time{font-size:22px}}
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>World Clocks</h1>
+      <p class="lead">See current time in different countries/timezones (updates every second).</p>
+    </div>
+  </header>
+
+  <section class="controls">
+    <select id="presetSelect" aria-label="Choose country/timezone">
+      <option value="">— Add a country/timezone —</option>
+      <option value="Asia/Kolkata">India — Asia/Kolkata</option>
+      <option value="America/New_York">United States (New York) — America/New_York</option>
+      <option value="America/Los_Angeles">United States (Los Angeles) — America/Los_Angeles</option>
+      <option value="Europe/London">United Kingdom — Europe/London</option>
+      <option value="Europe/Berlin">Germany — Europe/Berlin</option>
+      <option value="Asia/Tokyo">Japan — Asia/Tokyo</option>
+      <option value="Asia/Shanghai">China — Asia/Shanghai</option>
+      <option value="Australia/Sydney">Australia — Australia/Sydney</option>
+      <option value="America/Sao_Paulo">Brazil — America/Sao_Paulo</option>
+      <option value="Africa/Johannesburg">South Africa — Africa/Johannesburg</option>
+      <option value="Europe/Moscow">Russia (Moscow) — Europe/Moscow</option>
+    </select>
+
+    <input id="customInput" placeholder="Or type a timezone (e.g. Pacific/Auckland)" />
+    <button id="addBtn">Add Clock</button>
+
+    <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+      <button id="clearBtn">Clear all</button>
+    </div>
+  </section>
+
+  <main>
+    <div id="grid" class="grid">
+      <div class="empty" id="emptyHint">No clocks yet — add a timezone using the selector or type one manually.</div>
+    </div>
+  </main>
+
+  <footer>
+    Tip: Timezones use the IANA TZ database names (like "Europe/London" or "Asia/Kolkata").
+  </footer>
+
+  <script>
+    // Small helper: format a Date for a given IANA timezone
+    function formatForTZ(date, tz) {
+      const optsTime = { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, timeZone: tz };
+      const optsDate = { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric', timeZone: tz };
+      const time = new Intl.DateTimeFormat([], optsTime).format(date);
+      const dateStr = new Intl.DateTimeFormat([], optsDate).format(date);
+      const offset = -new Date().toLocaleString('en-US',{timeZone:tz, timeZoneName:'short'}).split(' ').pop();
+      return { time, dateStr, offset };
+    }
+
+    const grid = document.getElementById('grid');
+    const emptyHint = document.getElementById('emptyHint');
+    const preset = document.getElementById('presetSelect');
+    const customInput = document.getElementById('customInput');
+    const addBtn = document.getElementById('addBtn');
+    const clearBtn = document.getElementById('clearBtn');
+
+    // Keep clocks in an array of tz strings
+    let clocks = [];
+
+    function save() { try{localStorage.setItem('worldClocks', JSON.stringify(clocks)); }catch(e){} }
+    function load(){ try{const s = localStorage.getItem('worldClocks'); if(s) clocks = JSON.parse(s);}catch(e){} }
+
+    function createCard(tz){
+      const card = document.createElement('div'); card.className='card';
+      card.dataset.tz = tz;
+      card.innerHTML = `
+        <div class="top">
+          <div>
+            <div class="location">${tz.replace('_',' ').replace('/', ' — ')}</div>
+            <div class="tz">${tz}</div>
+          </div>
+          <div>
+            <button class="removeBtn" title="Remove">✕</button>
+          </div>
+        </div>
+        <div class="time" data-time>--:--:--</div>
+        <div class="date" data-date>Loading date...</div>
+        <div class="small" data-offset></div>
+      `;
+      card.querySelector('.removeBtn').addEventListener('click', ()=>{
+        clocks = clocks.filter(x=>x!==tz); save(); render();
+      });
+      return card;
+    }
+
+    function render(){
+      grid.innerHTML='';
+      if(clocks.length===0){ grid.appendChild(emptyHint); return }
+      clocks.forEach(tz=>{
+        grid.appendChild(createCard(tz));
+      });
+    }
+
+    function tick(){
+      const now = new Date();
+      const cards = grid.querySelectorAll('.card');
+      cards.forEach(card=>{
+        const tz = card.dataset.tz;
+        try{
+          const {time, dateStr, offset} = formatForTZ(now, tz);
+          card.querySelector('[data-time]').textContent = time;
+          card.querySelector('[data-date]').textContent = dateStr;
+          card.querySelector('[data-offset]').textContent = 'Zone: ' + offset;
+        }catch(e){
+          card.querySelector('[data-time]').textContent = 'Invalid TZ';
+          card.querySelector('[data-date]').textContent = tz;
+          card.querySelector('[data-offset]').textContent = '';
+        }
+      });
+    }
+
+    // Add timezone to clocks (if valid-ish)
+    function addTZ(tz){
+      tz = tz.trim(); if(!tz) return;
+      if(clocks.includes(tz)) return;
+      // Quick validation: try formatting once
+      try{
+        new Intl.DateTimeFormat('en-US',{timeZone:tz}).format();
+      }catch(e){ alert('Invalid timezone name. Make sure you typed an IANA timezone like "Europe/London" or "Asia/Kolkata".'); return }
+      clocks.push(tz); save(); render();
+    }
+
+    addBtn.addEventListener('click', ()=>{
+      const val = preset.value || customInput.value;
+      addTZ(val);
+      customInput.value=''; preset.value='';
+    });
+
+    customInput.addEventListener('keypress', (e)=>{ if(e.key==='Enter') addBtn.click(); });
+
+    clearBtn.addEventListener('click', ()=>{ if(!confirm('Remove all clocks?')) return; clocks=[]; save(); render(); });
+
+    // init
+    load(); render(); tick();
+    setInterval(tick, 1000);
+
+    // expose for convenience (devtools)
+    window.worldClocks = { addTZ, clocks };
+  </script>
+</body>
+</html>
